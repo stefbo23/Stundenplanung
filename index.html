@@ -320,7 +320,7 @@ main{padding:20px;max-width:1300px;margin:0 auto}
       <label>Schwerpunktthemen (optional)</label>
       <textarea id="schwerpunkt" placeholder="z.B. Oktober: Herbst, Dezember: Advent, März: Frühling..."></textarea>
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
       <label style="display:flex;align-items:center;gap:8px;font-size:.82rem;cursor:pointer">
         <input type="checkbox" id="opt-methoden" checked style="width:auto"> Methoden vorschlagen
       </label>
@@ -331,6 +331,7 @@ main{padding:20px;max-width:1300px;margin:0 auto}
         <input type="checkbox" id="opt-genz" checked style="width:auto"> Kurze Einheiten (Gen Z/Alpha)
       </label>
     </div>
+    <button class="btn btn-green" onclick="saveEinrichtung()">💾 Einstellungen speichern</button>
   </div>
 </div>
 
@@ -1216,12 +1217,28 @@ function closeJahrModalBg(e) { if(e.target===document.getElementById('jahrModal'
 // ═══════════════════════════════════════
 // API-HELPER
 // ═══════════════════════════════════════
+function saveEinrichtung() {
+  // Schwerpunkt speichern
+  const sp = document.getElementById('schwerpunkt');
+  if(sp) localStorage.setItem('vs_schwerpunkt', sp.value);
+  saveState();
+  toast('Einstellungen gespeichert ✓');
+}
+
 function corsError() {
+  // Prüfen ob wir über HTTP/HTTPS laufen
+  const isLocal = location.protocol === 'file:';
+  if(isLocal) {
+    return `<div style="font-size:.76rem;line-height:1.6;color:#993C1D">
+      <strong>App als lokale Datei geöffnet</strong><br>
+      Öffne die App über deine GitHub Pages URL:<br>
+      <code style="background:#eee;padding:1px 5px;border-radius:3px;font-size:.72rem">https://deinname.github.io/vs-planung</code>
+    </div>`;
+  }
   return `<div style="font-size:.76rem;line-height:1.6;color:#993C1D">
-    <strong>App muss über eine URL geöffnet werden</strong><br>
-    Lokale Dateien blockieren KI-Aufrufe.<br>
-    Lade die App auf <a href="https://netlify.com" target="_blank" style="color:var(--green)">Netlify</a> oder 
-    <a href="https://pages.github.com" target="_blank" style="color:var(--green)">GitHub Pages</a> hoch.
+    <strong>KI-Verbindung fehlgeschlagen</strong><br>
+    Bitte Seite neu laden und nochmal versuchen.
+    <br><button class="btn btn-sm btn-outline" style="margin-top:6px" onclick="location.reload()">🔄 Neu laden</button>
   </div>`;
 }
 
@@ -1230,15 +1247,25 @@ async function apiCall(prompt, maxTokens=1200) {
   try {
     resp = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{
+        'Content-Type':'application/json',
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
       body: JSON.stringify({
         model:'claude-sonnet-4-20250514',
         max_tokens: maxTokens,
         messages:[{role:'user',content:prompt}]
       })
     });
-  } catch(e) { throw new Error('__CORS__'); }
-  if(!resp.ok) throw new Error(`API Error ${resp.status}`);
+  } catch(e) {
+    console.error('Fetch error:', e);
+    throw new Error('__CORS__');
+  }
+  if(!resp.ok) {
+    const errText = await resp.text().catch(()=>'');
+    throw new Error(`API ${resp.status}: ${errText.slice(0,100)}`);
+  }
   const data = await resp.json();
   return data.content?.map(c=>c.text||'').join('')||'';
 }
@@ -1667,13 +1694,12 @@ function closeKindModalBg(e) { if(e.target===document.getElementById('kindModal'
 // INIT
 // ═══════════════════════════════════════
 
+// Service Worker: alle alten deregistrieren, keinen neuen registrieren
+// (verhindert Cache-Probleme auf GitHub Pages / Netlify)
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.getRegistrations().then(regs=>{
-      regs.forEach(r=>r.unregister());
-    }).then(()=>{
-      navigator.serviceWorker.register('./sw.js').catch(e=>console.log('SW:',e));
-    });
+  navigator.serviceWorker.getRegistrations().then(regs=>{
+    regs.forEach(r=>{r.unregister();console.log('SW removed:',r.scope);});
+    if(regs.length) console.log('Alle alten Service Worker entfernt.');
   });
 }
 
